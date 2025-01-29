@@ -42,8 +42,9 @@ async def store_file(client, message):
         "file_id": message.video.file_id if message.video else message.document.file_id,
         "file_type": "video" if message.video else "document"
     }
-    file_collection.insert_one(file_data)
-    logger.info(f"Stored file with ID: {file_data['file_id']}")
+    if not file_collection.find_one({"file_id": file_data["file_id"]}):  # Avoid duplicates
+        file_collection.insert_one(file_data)
+        logger.info(f"Stored file with ID: {file_data['file_id']}")
 
 async def get_random_file(client, message):
     """Fetch a random file from MongoDB and send it to the user."""
@@ -52,7 +53,12 @@ async def get_random_file(client, message):
         await message.reply_text("No files found in the database.")
         return
 
-    random_file = file_collection.aggregate([{"$sample": {"size": 1}}]).next()
+    # Fetch a random file without cursor errors
+    try:
+        random_file = list(file_collection.aggregate([{"$sample": {"size": 1}}]))[0]
+    except (IndexError, StopIteration):
+        await message.reply_text("Error fetching the file from the database.")
+        return
 
     file_id = random_file.get("file_id")
     file_type = random_file.get("file_type")
@@ -61,16 +67,14 @@ async def get_random_file(client, message):
         await message.reply_text("Error fetching the file from the database.")
         return
 
-    if file_type == "video":
-        await client.send_video(
-            chat_id=message.chat.id,
-            video=file_id
-        )
-    else:
-        await client.send_document(
-            chat_id=message.chat.id,
-            document=file_id
-        )
+    try:
+        if file_type == "video":
+            await client.send_video(chat_id=message.chat.id, video=file_id)
+        else:
+            await client.send_document(chat_id=message.chat.id, document=file_id)
+    except Exception as e:
+        logger.error(f"Error sending file: {e}")
+        await message.reply_text("An error occurred while sending the file.")
 
 @bot.on_message(filters.command("start"))
 async def start(client, message):
