@@ -54,15 +54,22 @@ async def get_random_file(client, message):
 
     random_file = file_collection.aggregate([{"$sample": {"size": 1}}]).next()
 
-    if random_file["file_type"] == "video":
+    file_id = random_file.get("file_id")
+    file_type = random_file.get("file_type")
+
+    if not file_id or not file_type:
+        await message.reply_text("Error fetching the file from the database.")
+        return
+
+    if file_type == "video":
         await client.send_video(
             chat_id=message.chat.id,
-            video=random_file["file_id"]
+            video=file_id
         )
     else:
         await client.send_document(
             chat_id=message.chat.id,
-            document=random_file["file_id"]
+            document=file_id
         )
 
 @bot.on_message(filters.command("start"))
