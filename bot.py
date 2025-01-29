@@ -4,6 +4,8 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import API_ID, API_HASH, BOT_TOKEN, DATABASE_CHANNEL, MONGO_DB_URI
 from pymongo import MongoClient
+from flask import Flask
+import threading
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -22,30 +24,46 @@ bot = Client(
     bot_token=BOT_TOKEN
 )
 
+# Flask server for health checks
+app = Flask(__name__)
+
+@app.route("/health")
+def health():
+    return "OK", 200
+
+def run_health_server():
+    app.run(host="0.0.0.0", port=8000)
+
+# Store file metadata on upload
 @bot.on_message(filters.chat(DATABASE_CHANNEL) & (filters.document | filters.video))
 async def store_file(client, message):
     """Store file metadata in MongoDB."""
     file_data = {
-        "message_id": message.id,
+        "file_id": message.video.file_id if message.video else message.document.file_id,
         "file_type": "video" if message.video else "document"
     }
     file_collection.insert_one(file_data)
-    logger.info(f"Stored file with ID: {message.id}")
+    logger.info(f"Stored file with ID: {file_data['file_id']}")
 
 async def get_random_file(client, message):
-    """Fetch a random file from MongoDB and forward it to the user."""
+    """Fetch a random file from MongoDB and send it to the user."""
     file_count = file_collection.count_documents({})
     if file_count == 0:
         await message.reply_text("No files found in the database.")
         return
 
     random_file = file_collection.aggregate([{"$sample": {"size": 1}}]).next()
-    
-    await client.forward_messages(
-        chat_id=message.chat.id,
-        from_chat_id=DATABASE_CHANNEL,
-        message_ids=random_file["message_id"]
-    )
+
+    if random_file["file_type"] == "video":
+        await client.send_video(
+            chat_id=message.chat.id,
+            video=random_file["file_id"]
+        )
+    else:
+        await client.send_document(
+            chat_id=message.chat.id,
+            document=random_file["file_id"]
+        )
 
 @bot.on_message(filters.command("start"))
 async def start(client, message):
@@ -62,6 +80,9 @@ async def start(client, message):
 async def send_random_file(client, callback_query):
     """Handles button click to send a random file."""
     await get_random_file(client, callback_query.message)
+
+# Start the Flask server in a separate thread
+threading.Thread(target=run_health_server).start()
 
 # Start the bot
 bot.run()
