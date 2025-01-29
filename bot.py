@@ -26,11 +26,11 @@ bot = Client(
 async def store_file(client, message):
     """Store file metadata in MongoDB."""
     file_data = {
-        "message_id": message.message_id,
+        "message_id": message.id,
         "file_type": "video" if message.video else "document"
     }
     file_collection.insert_one(file_data)
-    logger.info(f"Stored file with ID: {message.message_id}")
+    logger.info(f"Stored file with ID: {message.id}")
 
 async def get_random_file(client, message):
     """Fetch a random file from MongoDB and forward it to the user."""
