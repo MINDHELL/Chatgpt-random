@@ -16,6 +16,9 @@ mongo_client = MongoClient(MONGO_DB_URI)
 db = mongo_client["file_sharing_bot"]
 file_collection = db["files"]
 
+# Store previously sent file IDs to avoid repetition
+sent_files_cache = set()
+
 # Initialize bot
 bot = Client(
     "RandomFileSenderBot",
@@ -50,25 +53,26 @@ async def get_random_file(client, message):
     """Fetch a random file from MongoDB and send it to the user."""
     query_filter = {"file_type": "video"} if not SEND_IMAGES_AND_VIDEOS else {}
 
-    file_count = file_collection.count_documents(query_filter)
-    if file_count == 0:
-        await message.reply_text("No files found in the database.")
+    # Exclude already sent files
+    available_files = list(file_collection.find({"file_type": query_filter.get("file_type", {"$exists": True}),
+                                                  "file_id": {"$nin": list(sent_files_cache)}}))
+
+    if not available_files:
+        await message.reply_text("No more unique files found in the database.")
         return
 
-    # Fetch a random file without cursor errors
-    random_file = list(file_collection.aggregate([{"$match": query_filter}, {"$sample": {"size": 1}}]))
+    # Select a random file
+    random_file = random.choice(available_files)
 
-    if not random_file:
-        await message.reply_text("Error fetching the file from the database.")
-        return
-
-    file = random_file[0]
-    file_id = file.get("file_id")
-    file_type = file.get("file_type")
+    file_id = random_file.get("file_id")
+    file_type = random_file.get("file_type")
 
     if not file_id or not file_type:
         await message.reply_text("Error fetching the file from the database.")
         return
+
+    # Add the file to sent cache
+    sent_files_cache.add(file_id)
 
     try:
         if file_type == "video":
@@ -102,4 +106,3 @@ threading.Thread(target=run_health_server).start()
 
 # Start the bot
 bot.run()
-
