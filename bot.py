@@ -1,5 +1,5 @@
-import random
 import logging
+import random
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import API_ID, API_HASH, BOT_TOKEN, DATABASE_CHANNEL, MONGO_DB_URI, SEND_IMAGES_AND_VIDEOS
@@ -39,30 +39,39 @@ def run_health_server():
 async def store_file(client, message):
     """Store file metadata in MongoDB."""
     file_data = {
-        "file_id": message.video.file_id if message.video else message.document.file_id if message.document else message.photo.file_id,
-        "file_type": "video" if message.video else "document" if message.document else "photo"
+        "file_id": (
+            message.video.file_id if message.video
+            else message.document.file_id if message.document
+            else message.photo.file_id
+        ),
+        "file_type": (
+            "video" if message.video
+            else "document" if message.document
+            else "photo"
+        )
     }
-    if not file_collection.find_one({"file_id": file_data["file_id"]}):  # Avoid duplicates
+    
+    # Avoid duplicate entries
+    if not file_collection.find_one({"file_id": file_data["file_id"]}):
         file_collection.insert_one(file_data)
         logger.info(f"Stored file with ID: {file_data['file_id']}")
 
 async def get_random_file(client, message):
     """Fetch a random file from MongoDB and send it to the user."""
     query_filter = {}
+
+    # Restrict to videos if SEND_IMAGES_AND_VIDEOS is False
     if not SEND_IMAGES_AND_VIDEOS:
-        query_filter = {"file_type": "video"}  # Restrict to videos if toggle is off
+        query_filter = {"file_type": "video"}
 
     file_count = file_collection.count_documents(query_filter)
+
     if file_count == 0:
         await message.reply_text("No files found in the database.")
         return
 
-    # Fetch a random file without cursor errors
-    try:
-        random_file = list(file_collection.aggregate([{"$match": query_filter}, {"$sample": {"size": 1}}]))[0]
-    except (IndexError, StopIteration):
-        await message.reply_text("Error fetching the file from the database.")
-        return
+    # Fetch a random file
+    random_file = file_collection.aggregate([{"$match": query_filter}, {"$sample": {"size": 1}}]).next()
 
     file_id = random_file.get("file_id")
     file_type = random_file.get("file_type")
@@ -74,13 +83,13 @@ async def get_random_file(client, message):
     try:
         if file_type == "video":
             await client.send_video(chat_id=message.chat.id, video=file_id)
+        elif file_type == "document":
+            await client.send_document(chat_id=message.chat.id, document=file_id)
         elif file_type == "photo":
             await client.send_photo(chat_id=message.chat.id, photo=file_id)
-        else:
-            await client.send_document(chat_id=message.chat.id, document=file_id)
     except Exception as e:
         logger.error(f"Error sending file: {e}")
-        await message.reply_text("An error occurred while sending the file.")
+        await message.reply_text("Failed to send the file. Please try again.")
 
 @bot.on_message(filters.command("start"))
 async def start(client, message):
@@ -103,4 +112,3 @@ threading.Thread(target=run_health_server).start()
 
 # Start the bot
 bot.run()
-
