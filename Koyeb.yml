@@ -1,0 +1,8 @@
+name: Random-File-Sender-Bot
+type: web
+region: frankfurt
+routes:
+  - path: /
+build:
+  type: docker
+  dockerfile: Dockerfile
