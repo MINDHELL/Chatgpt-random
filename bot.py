@@ -53,9 +53,8 @@ async def get_random_file(client, message):
     """Fetch a random file from MongoDB and send it to the user."""
     query_filter = {"file_type": "video"} if not SEND_IMAGES_AND_VIDEOS else {}
 
-    # Exclude already sent files
-    available_files = list(file_collection.find({"file_type": query_filter.get("file_type", {"$exists": True}),
-                                                  "file_id": {"$nin": list(sent_files_cache)}}))
+    # Fetch eligible files excluding already sent ones
+    available_files = list(file_collection.find({"$and": [query_filter, {"file_id": {"$nin": list(sent_files_cache)}}]}))
 
     if not available_files:
         await message.reply_text("No more unique files found in the database.")
